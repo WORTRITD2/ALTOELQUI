@@ -1,26 +1,63 @@
 "use strict";
 
-const estado = { obraId: null, presupuestoId: null, fecha: null, obra: null };
+const API = (window.CONFIG && window.CONFIG.API_URL) || "";
+const estado = { obraId: null, presupuestoId: null, fecha: null, obra: null, cartera: null };
 
 const $ = (sel) => document.querySelector(sel);
-const pesos = (v) =>
-  "$" + Math.round(Number(v || 0)).toLocaleString("es-CL", { maximumFractionDigits: 0 });
+const pesos = (v) => "$" + Math.round(Number(v || 0)).toLocaleString("es-CL");
+const pesosCortos = (v) => {
+  const n = Math.round(Number(v || 0));
+  if (Math.abs(n) >= 1e9) return "$" + (n / 1e9).toFixed(2).replace(".", ",") + " mil M";
+  if (Math.abs(n) >= 1e6) return "$" + (n / 1e6).toFixed(1).replace(".", ",") + " M";
+  return pesos(n);
+};
 const pct = (v, d = 2) => (Number(v || 0) * 100).toFixed(d) + "%";
+const num = (v) => Number(v || 0).toLocaleString("es-CL", { maximumFractionDigits: 2 });
 const hoy = () => new Date().toISOString().slice(0, 10);
 
+// --------------------------------------------------------------------------
+// Acceso a la API, con caché para funcionar sin conexión
+// --------------------------------------------------------------------------
 async function api(ruta, opciones = {}) {
-  const r = await fetch("/api" + ruta, {
-    headers: { "Content-Type": "application/json" },
-    ...opciones,
-  });
-  if (!r.ok) {
-    let detalle = r.statusText;
-    try {
-      detalle = (await r.json()).detail || detalle;
-    } catch (_) {}
-    throw new Error(detalle);
+  const url = API + "/api" + ruta;
+  const esLectura = !opciones.method || opciones.method === "GET";
+  try {
+    const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opciones });
+    if (!r.ok) {
+      let detalle = r.statusText;
+      try {
+        detalle = (await r.json()).detail || detalle;
+      } catch (_) {}
+      throw new Error(detalle);
+    }
+    const datos = r.status === 204 ? null : await r.json();
+    if (esLectura) guardarCache(ruta, datos);
+    $("#sin-conexion").classList.add("oculto");
+    return datos;
+  } catch (e) {
+    if (esLectura) {
+      const cache = leerCache(ruta);
+      if (cache !== null) {
+        $("#sin-conexion").classList.remove("oculto");
+        return cache;
+      }
+    }
+    throw e;
   }
-  return r.status === 204 ? null : r.json();
+}
+
+function guardarCache(ruta, datos) {
+  try {
+    localStorage.setItem("cache:" + ruta, JSON.stringify({ t: Date.now(), datos }));
+  } catch (_) {}
+}
+function leerCache(ruta) {
+  try {
+    const crudo = localStorage.getItem("cache:" + ruta);
+    return crudo ? JSON.parse(crudo).datos : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function avisar(texto, esError = false) {
@@ -31,16 +68,21 @@ function avisar(texto, esError = false) {
   avisar.t = setTimeout(() => el.classList.add("oculto"), 6000);
 }
 
+// --------------------------------------------------------------------------
+// Presentación
+// --------------------------------------------------------------------------
 function tabla(columnas, filas, opciones = {}) {
-  if (!filas.length) return '<p class="vacio">Sin datos para mostrar.</p>';
-  const encabezado = columnas
-    .map((c) => `<th class="${c.n ? "n" : ""}">${c.titulo}</th>`)
-    .join("");
+  if (!filas || !filas.length) return '<p class="vacio">Sin datos para mostrar.</p>';
+  const encabezado = columnas.map((c) => `<th class="${c.n ? "n" : ""}">${c.titulo}</th>`).join("");
   const cuerpo = filas
     .map((f) => {
       const clase = opciones.clase ? opciones.clase(f) : "";
       const celdas = columnas
-        .map((c) => `<td class="${c.n ? "n" : ""}">${c.valor(f) ?? ""}</td>`)
+        .map(
+          (c, i) =>
+            `<td class="${c.n ? "n" : ""}${i === 0 ? " principal" : ""}" ` +
+            `data-etiqueta="${c.titulo}">${c.valor(f) ?? ""}</td>`
+        )
         .join("");
       return `<tr class="${clase}">${celdas}</tr>`;
     })
@@ -52,7 +94,19 @@ const kpi = (etiqueta, valor, pie = "", clase = "") =>
   `<div class="kpi ${clase}"><div class="etiqueta">${etiqueta}</div>
    <div class="valor">${valor}</div><div class="pie">${pie}</div></div>`;
 
-const pastilla = (texto) => `<span class="pastilla ${texto}">${texto}</span>`;
+const pastilla = (texto) => `<span class="pastilla ${texto}">${(texto || "").replace(/_/g, " ")}</span>`;
+
+const barra = (valor, referencia) =>
+  `<div class="barra-avance"><span style="width:${Math.min(Math.max(valor, 0) * 100, 100)}%"></span>` +
+  (referencia !== undefined
+    ? `<i style="position:absolute;top:-2px;bottom:-2px;left:${Math.min(referencia * 100, 100)}%;
+        width:2px;background:#5b6b7c;display:block"></i>`
+    : "") +
+  `</div>`;
+
+function claseSemaforo(s) {
+  return { VERDE: "verde", AMARILLO: "amarillo", ROJO: "rojo" }[s] || "";
+}
 
 // --------------------------------------------------------------------------
 // Arranque
@@ -60,14 +114,11 @@ const pastilla = (texto) => `<span class="pastilla ${texto}">${texto}</span>`;
 async function iniciar() {
   const obras = await api("/obras");
   const sel = $("#selector-obra");
-  sel.innerHTML = obras
-    .map((o) => `<option value="${o.id}">${o.nombre}</option>`)
-    .join("");
+  sel.innerHTML = obras.map((o) => `<option value="${o.id}">${o.nombre}</option>`).join("");
   if (!obras.length) {
     avisar("No hay obras cargadas. Ejecuta seed.py o crea una desde la API.", true);
     return;
   }
-  $("#fecha-corte").value = hoy();
   sel.onchange = () => cargarObra(Number(sel.value));
   $("#fecha-corte").onchange = () => {
     estado.fecha = $("#fecha-corte").value;
@@ -78,45 +129,51 @@ async function iniciar() {
 
 async function cargarObra(id) {
   estado.obraId = id;
+  $("#selector-obra").value = String(id);
   const detalle = await api(`/obras/${id}`);
   estado.obra = detalle;
   estado.presupuestoId = detalle.presupuesto ? detalle.presupuesto.id : null;
-  if (detalle.fecha_inicio) {
-    $("#semanal-desde").value = detalle.fecha_inicio;
-  }
-  // La fecha de corte por defecto es el último estado de pago, o hoy
+
   const eps = await api(`/obras/${id}/estados-pago`);
-  const ultima = eps.length ? eps[eps.length - 1].fecha_corte : hoy();
-  $("#fecha-corte").value = ultima;
-  $("#semanal-hasta").value = ultima;
-  $("#ep-fecha").value = ultima;
-  $("#ind-desde").value = detalle.fecha_inicio || ultima;
-  $("#ind-hasta").value = ultima;
-  estado.fecha = ultima;
+  const corte = eps.length ? eps[eps.length - 1].fecha_corte : detalle.fecha_inicio || hoy();
+  estado.fecha = corte;
+  $("#fecha-corte").value = corte;
+  $("#semanal-desde").value = detalle.fecha_inicio || corte;
+  $("#semanal-hasta").value = corte;
+  $("#ep-fecha").value = corte;
+  $("#ind-desde").value = detalle.fecha_inicio || corte;
+  $("#ind-hasta").value = corte;
+
   await cargarCatalogoParametros();
+  await cargarCapitulosFiltro();
   refrescarVista();
 }
 
 // --------------------------------------------------------------------------
-// Navegación
+// Navegación (escritorio + móvil sincronizados)
 // --------------------------------------------------------------------------
-document.querySelectorAll("#pestanas button").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll("#pestanas button").forEach((x) => x.classList.remove("activa"));
-    document.querySelectorAll(".vista").forEach((x) => x.classList.remove("activa"));
-    b.classList.add("activa");
-    $("#vista-" + b.dataset.vista).classList.add("activa");
-    refrescarVista();
-  };
+function irA(vista) {
+  document.querySelectorAll("#pestanas button, #nav-movil button").forEach((b) => {
+    b.classList.toggle("activa", b.dataset.vista === vista);
+  });
+  document.querySelectorAll(".vista").forEach((v) => v.classList.remove("activa"));
+  $("#vista-" + vista).classList.add("activa");
+  window.scrollTo({ top: 0, behavior: "instant" });
+  refrescarVista();
+}
+
+document.querySelectorAll("#pestanas button, #nav-movil button").forEach((b) => {
+  b.onclick = () => irA(b.dataset.vista);
 });
 
 function vistaActiva() {
-  return document.querySelector("#pestanas button.activa").dataset.vista;
+  const activo = document.querySelector("#pestanas button.activa, #nav-movil button.activa");
+  return activo ? activo.dataset.vista : "panel";
 }
 
 function refrescarVista() {
   const acciones = {
-    tablero: cargarTablero,
+    panel: cargarPanel,
     presupuesto: cargarPresupuesto,
     semanal: cargarSemanal,
     "estados-pago": cargarEstadosPago,
@@ -129,78 +186,227 @@ function refrescarVista() {
 }
 
 // --------------------------------------------------------------------------
-// Tablero
+// PANEL DE GERENCIA
 // --------------------------------------------------------------------------
-async function cargarTablero() {
-  const t = await api(`/obras/${estado.obraId}/reportes/tablero?fecha=${estado.fecha}`);
-  const spi = t.spi === null ? "—" : t.spi.toFixed(2);
-  const claseSpi = t.spi === null ? "" : t.spi >= 1 ? "verde" : t.spi >= 0.8 ? "amarillo" : "rojo";
-  $("#kpis").innerHTML = [
-    kpi("Avance físico", pct(t.avance_fisico_pct), "ponderado por costo"),
-    kpi("Contrato", pesos(t.contrato_total), "con IVA"),
-    kpi("Ejecutado", pesos(t.avance_total), `facturado ${pesos(t.facturado)}`),
-    kpi("Por facturar", pesos(t.por_facturar), `próximo EP N°${t.proximo_ep}`),
-    kpi("SPI", spi, `desviación ${t.desviacion_pp.toFixed(2)} p.p.`, claseSpi),
-    kpi(
-      "Semana en curso",
-      t.semana.iso,
-      `${t.semana.dias_habiles} días hábiles` +
-        (t.semana.feriados.length ? ` · ${t.semana.feriados.join(", ")}` : "")
-    ),
-    kpi("Atraso", t.atraso_semanas + " sem", "respecto del programa"),
-    kpi("Término proyectado", t.proyeccion_termino || "—", "ritmo últimas 4 semanas"),
+async function cargarPanel() {
+  const cartera = await api(`/panel/cartera?fecha=${estado.fecha}`);
+  estado.cartera = cartera;
+  const t = cartera.totales;
+
+  $("#cartera-kpis").innerHTML = [
+    kpi("Obras", t.obras, `${t.en_rojo} con atraso relevante`, t.en_rojo ? "rojo" : "verde"),
+    kpi("Contratado", pesosCortos(t.contrato), "todas las obras"),
+    kpi("Ejecutado", pesosCortos(t.ejecutado), `avance ${pct(t.avance_ponderado)}`),
+    kpi("Facturado", pesosCortos(t.facturado), "estados de pago aprobados"),
+    kpi("Por facturar", pesosCortos(t.por_facturar), "ejecutado sin cobrar",
+        Number(t.por_facturar) > 0 ? "amarillo" : ""),
+    kpi("Con alertas", t.con_alertas, "requieren atención", t.con_alertas ? "amarillo" : "verde"),
   ].join("");
 
-  $("#curva-s").innerHTML = curvaS(t.curva_s);
-  $("#criticas-tablero").innerHTML = tabla(
-    [
-      { titulo: "Ítem", valor: (f) => f.codigo },
-      { titulo: "Descripción", valor: (f) => f.descripcion },
-      { titulo: "Atraso", n: true, valor: (f) => f.atraso_pp.toFixed(1) + " p.p." },
-      { titulo: "Monto", n: true, valor: (f) => pesos(f.monto_atraso) },
-    ],
-    t.partidas_criticas
-  );
-  $("#eps-tablero").innerHTML = tabla(
-    [
-      { titulo: "N°", valor: (e) => e.numero },
-      { titulo: "Estado", valor: (e) => pastilla(e.estado) },
-      { titulo: "Total", n: true, valor: (e) => pesos(e.total) },
-    ],
-    t.estados_pago
-  );
+  $("#cartera-obras").innerHTML = cartera.obras
+    .map((o) => {
+      if (o.sin_presupuesto) {
+        return `<button class="tarjeta-obra" onclick="seleccionarObra(${o.id})">
+          <h3>${o.nombre}</h3><p class="meta">Sin presupuesto importado</p></button>`;
+      }
+      const sel = o.id === estado.obraId ? " seleccionada" : "";
+      return `<button class="tarjeta-obra${sel}" onclick="seleccionarObra(${o.id})">
+        <h3>${o.nombre}</h3>
+        <p class="meta">${o.mandante || ""}${o.ubicacion ? " · " + o.ubicacion : ""}</p>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <strong style="font-size:1.15rem">${pct(o.avance_pct)}</strong>
+          ${pastilla(o.semaforo)}
+        </div>
+        ${barra(o.avance_pct, o.programado_pct)}
+        <div class="cifras">
+          <div><span>Contrato</span><b>${pesosCortos(o.contrato)}</b></div>
+          <div><span>Ejecutado</span><b>${pesosCortos(o.ejecutado)}</b></div>
+          <div><span>SPI</span><b>${o.spi === null ? "—" : o.spi.toFixed(2)}</b></div>
+        </div>
+        ${o.alertas.length ? `<ul class="alertas">${o.alertas.map((a) => `<li>${a}</li>`).join("")}</ul>` : ""}
+      </button>`;
+    })
+    .join("");
+
+  await cargarPanelObra();
 }
 
+window.masPartidas = function () {
+  cargarPanelObra(estado.panelPartidas.length).catch((e) => avisar(e.message, true));
+};
+
+window.seleccionarObra = async function (id) {
+  await cargarObra(id);
+  irA("panel");
+};
+
+const esMovil = () => window.matchMedia("(max-width: 759px)").matches;
+const porPagina = () => (esMovil() ? 25 : 60);
+
+function filtrosActuales(desplazamiento = 0) {
+  const p = new URLSearchParams({ fecha: estado.fecha });
+  const capitulo = $("#f-capitulo").value;
+  const semaforo = $("#f-semaforo").value;
+  const est = $("#f-estado").value;
+  const texto = $("#f-texto").value.trim();
+  const orden = $("#f-orden").value;
+  if (capitulo) p.set("capitulo", capitulo);
+  if (semaforo) p.set("semaforo", semaforo);
+  if (est) p.set("estado", est);
+  if (texto) p.set("texto", texto);
+  if (orden) p.set("orden", orden);
+  p.set("limite", String(porPagina()));
+  p.set("desplazamiento", String(desplazamiento));
+  return p.toString();
+}
+
+async function cargarPanelObra(desplazamiento = 0) {
+  if (!estado.presupuestoId) {
+    $("#panel-partidas").innerHTML = '<p class="vacio">La obra no tiene presupuesto importado.</p>';
+    return;
+  }
+  const d = await api(`/panel/obras/${estado.obraId}?${filtrosActuales(desplazamiento)}`);
+  estado.panelPartidas = desplazamiento ? estado.panelPartidas.concat(d.partidas) : d.partidas;
+  const k = d.kpis;
+
+  $("#panel-obra-titulo").textContent = d.obra.nombre;
+  $("#panel-obra-sub").textContent =
+    `${d.obra.mandante || ""} · corte ${d.fecha}` + (k.semana ? ` · semana ${k.semana}` : "");
+
+  $("#panel-kpis").innerHTML = [
+    kpi("Avance real", pct(k.avance_pct), `programado ${pct(k.programado_pct)}`),
+    kpi("Desviación", k.desviacion_pp.toFixed(1) + " p.p.", "real − programado",
+        k.desviacion_pp >= 0 ? "verde" : "rojo"),
+    kpi("SPI", k.spi === null ? "—" : k.spi.toFixed(2), "1,00 = en programa",
+        k.spi === null ? "" : k.spi >= 1 ? "verde" : k.spi >= 0.8 ? "amarillo" : "rojo"),
+    kpi("Ejecutado", pesosCortos(k.ejecutado), `de ${pesosCortos(k.contrato)}`),
+    kpi("Atraso", k.atraso_semanas + " sem", "respecto del programa"),
+    kpi("Término proyectado", k.proyeccion_termino || "—", "al ritmo actual"),
+  ].join("");
+
+  $("#panel-curva").innerHTML = `<div class="grafico">${curvaS(d.curva_s)}</div>`;
+
+  const r = d.resumen_filtro;
+  $("#panel-resumen-filtro").innerHTML =
+    `<strong>${r.partidas}</strong> partidas seleccionadas · ` +
+    `${pct(r.incidencia)} del contrato · avance <strong>${pct(r.avance_pct)}</strong> · ` +
+    `${pesosCortos(r.monto_ejecutado)} de ${pesosCortos(r.monto_contratado)}` +
+    (Number(r.monto_atraso) > 0
+      ? ` · <span style="color:#b42318">atraso ${pesosCortos(r.monto_atraso)}</span>`
+      : "") +
+    ` · ${r.sin_iniciar} sin iniciar, ${r.terminadas} terminadas` +
+    "";
+
+  const columnas = [
+    { titulo: "Ítem", valor: (p) => p.codigo },
+    { titulo: "Descripción", valor: (p) => p.descripcion },
+    { titulo: "Un.", valor: (p) => p.unidad || "" },
+    { titulo: "Contratado", n: true, valor: (p) => num(p.cantidad) },
+    { titulo: "Ejecutado", n: true, valor: (p) => num(p.ejecutado) },
+    {
+      titulo: "Avance",
+      n: true,
+      valor: (p) => `${pct(p.avance_pct)}${barra(p.avance_pct, p.programado_pct)}`,
+    },
+    { titulo: "Programado", n: true, valor: (p) => pct(p.programado_pct) },
+    { titulo: "Monto ejecutado", n: true, valor: (p) => pesos(p.monto_avance) },
+    { titulo: "Atraso", n: true, valor: (p) => (Number(p.monto_atraso) ? pesos(p.monto_atraso) : "—") },
+    { titulo: "Peso", n: true, valor: (p) => pct(p.incidencia) },
+    { titulo: "Estado", valor: (p) => pastilla(p.semaforo) },
+  ];
+  // En móvil se muestran las columnas que importan para supervisar; el resto
+  // sigue disponible en escritorio y en la exportación a Excel.
+  const visibles = esMovil()
+    ? columnas.filter((c) => !["Un.", "Contratado", "Programado", "Peso"].includes(c.titulo))
+    : columnas;
+
+  const faltan = d.paginacion.total - estado.panelPartidas.length;
+  $("#panel-partidas").innerHTML =
+    tabla(visibles, estado.panelPartidas) +
+    (faltan > 0
+      ? `<div style="padding:.8rem;text-align:center">
+           <button class="boton secundario" onclick="masPartidas()">
+             Mostrar ${Math.min(faltan, porPagina())} más (quedan ${faltan})</button></div>`
+      : "");
+
+  $("#panel-capitulos").innerHTML =
+    `<div class="panel-cabecera"><h2>Avance por capítulo</h2></div>` +
+    tabla(
+      [
+        { titulo: "Capítulo", valor: (c) => c.capitulo },
+        { titulo: "Contrato", n: true, valor: (c) => pesosCortos(c.contrato) },
+        { titulo: "Ejecutado", n: true, valor: (c) => pesosCortos(c.avance) },
+        { titulo: "Avance", n: true, valor: (c) => `${pct(c.pct)}${barra(c.pct)}` },
+        { titulo: "Peso", n: true, valor: (c) => pct(c.incidencia) },
+      ],
+      d.capitulos
+    );
+}
+
+async function cargarCapitulosFiltro() {
+  if (!estado.presupuestoId) return;
+  try {
+    const caps = await api(`/panel/obras/${estado.obraId}/capitulos`);
+    $("#f-capitulo").innerHTML =
+      '<option value="">Todos los capítulos</option>' +
+      caps
+        .map((c) => `<option value="${c.codigo}">${c.codigo} — ${c.descripcion}</option>`)
+        .join("");
+  } catch (_) {}
+}
+
+["#f-capitulo", "#f-semaforo", "#f-estado", "#f-orden"].forEach((sel) => {
+  $(sel).onchange = () => cargarPanelObra().catch((e) => avisar(e.message, true));
+});
+let tecleo;
+$("#f-texto").oninput = () => {
+  clearTimeout(tecleo);
+  tecleo = setTimeout(() => cargarPanelObra().catch((e) => avisar(e.message, true)), 350);
+};
+$("#f-limpiar").onclick = () => {
+  ["#f-capitulo", "#f-semaforo", "#f-estado"].forEach((s) => ($(s).value = ""));
+  $("#f-texto").value = "";
+  $("#f-orden").value = "incidencia";
+  cargarPanelObra().catch((e) => avisar(e.message, true));
+};
+
+// --------------------------------------------------------------------------
+// Curva S
+// --------------------------------------------------------------------------
 function curvaS(datos) {
-  if (!datos || datos.length < 2) return '<p class="vacio">Genera la programación para ver la curva S.</p>';
-  const w = 900, h = 260, m = { t: 16, r: 16, b: 34, l: 46 };
+  if (!datos || datos.length < 2)
+    return '<p class="vacio">Genera la programación para ver la curva S.</p>';
+  const w = 900, h = 240, m = { t: 14, r: 14, b: 30, l: 42 };
   const x = (i) => m.l + (i * (w - m.l - m.r)) / (datos.length - 1);
   const y = (v) => h - m.b - v * (h - m.t - m.b);
   const linea = (clave, color, guion) =>
-    `<path d="${datos.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d[clave]).toFixed(1)}`).join(" ")}"
-      fill="none" stroke="${color}" stroke-width="2" ${guion ? 'stroke-dasharray="5 4"' : ""}/>`;
+    `<path d="${datos
+      .map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d[clave]).toFixed(1)}`)
+      .join(" ")}" fill="none" stroke="${color}" stroke-width="2.5"
+      ${guion ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
   const ejes = [0, 0.25, 0.5, 0.75, 1]
     .map(
       (v) =>
         `<line x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="#e6eaf0"/>
-         <text x="${m.l - 8}" y="${y(v) + 3}" text-anchor="end">${v * 100}%</text>`
+         <text x="${m.l - 6}" y="${y(v) + 3}" text-anchor="end">${v * 100}%</text>`
     )
     .join("");
-  const paso = Math.max(1, Math.ceil(datos.length / 12));
+  const paso = Math.max(1, Math.ceil(datos.length / 10));
   const etiquetas = datos
     .map((d, i) =>
-      i % paso === 0
-        ? `<text x="${x(i)}" y="${h - 12}" text-anchor="middle">${d.iso.replace("2025-", "")}</text>`
+      i % paso === 0 || i === datos.length - 1
+        ? `<text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.iso.split("-")[1]}</text>`
         : ""
     )
     .join("");
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">${ejes}
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img"
+     aria-label="Curva S: avance programado contra avance real">${ejes}
     ${linea("programado", "#8a94a6", true)}${linea("real", "#1f3864", false)}${etiquetas}
-    <g transform="translate(${m.l + 8},${m.t + 4})">
-      <line x1="0" x2="18" y1="0" y2="0" stroke="#8a94a6" stroke-width="2" stroke-dasharray="5 4"/>
-      <text x="24" y="3">Programado</text>
-      <line x1="100" x2="118" y1="0" y2="0" stroke="#1f3864" stroke-width="2"/>
-      <text x="124" y="3">Real</text>
+    <g transform="translate(${m.l + 6},${m.t + 2})">
+      <line x1="0" x2="16" y1="0" y2="0" stroke="#8a94a6" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <text x="22" y="3">Programado</text>
+      <line x1="96" x2="112" y1="0" y2="0" stroke="#1f3864" stroke-width="2.5"/>
+      <text x="118" y="3">Real</text>
     </g></svg>`;
 }
 
@@ -215,13 +421,13 @@ async function cargarPresupuesto() {
     `/obras/${estado.obraId}/reportes/presupuesto?fecha=${estado.fecha}&solo_aprobados=${aprobados}`
   );
   $("#descarga-presupuesto").href =
-    `/api/obras/${estado.obraId}/reportes/presupuesto.xlsx?fecha=${estado.fecha}`;
+    `${API}/api/obras/${estado.obraId}/reportes/presupuesto.xlsx?fecha=${estado.fecha}`;
 
   $("#cierre-presupuesto").innerHTML = [
     kpi("Avance", pct(r.avance_pct), `al ${r.fecha_corte}`),
-    kpi("Costo directo ejecutado", pesos(r.avance.cd), `de ${pesos(r.contrato.cd)}`),
-    kpi("Total ejecutado", pesos(r.avance.total), "con GG, utilidad e IVA"),
-    kpi("Contrato", pesos(r.contrato.total), r.contrato.origen || "recalculado"),
+    kpi("Costo directo ejecutado", pesosCortos(r.avance.cd), `de ${pesosCortos(r.contrato.cd)}`),
+    kpi("Total ejecutado", pesosCortos(r.avance.total), "con GG, utilidad e IVA"),
+    kpi("Contrato", pesosCortos(r.contrato.total), r.contrato.origen || "recalculado"),
   ].join("");
 
   filasPresupuesto = r.filas;
@@ -231,14 +437,9 @@ async function cargarPresupuesto() {
   $("#capitulos").innerHTML = tabla(
     [
       { titulo: "Capítulo", valor: (c) => c.capitulo },
-      { titulo: "Contrato", n: true, valor: (c) => pesos(c.contrato) },
-      { titulo: "Ejecutado", n: true, valor: (c) => pesos(c.avance) },
-      {
-        titulo: "Avance",
-        n: true,
-        valor: (c) =>
-          `${pct(c.pct)} <div class="barra-avance"><span style="width:${Math.min(c.pct * 100, 100)}%"></span></div>`,
-      },
+      { titulo: "Contrato", n: true, valor: (c) => pesosCortos(c.contrato) },
+      { titulo: "Ejecutado", n: true, valor: (c) => pesosCortos(c.avance) },
+      { titulo: "Avance", n: true, valor: (c) => `${pct(c.pct)}${barra(c.pct)}` },
       { titulo: "Incidencia", n: true, valor: (c) => pct(c.incidencia) },
     ],
     r.capitulos
@@ -267,17 +468,16 @@ function pintarPartidas() {
       { titulo: "Ítem", valor: (f) => f.codigo },
       { titulo: "Descripción", valor: (f) => f.descripcion },
       { titulo: "Un.", valor: (f) => f.unidad || "" },
-      { titulo: "Cantidad", n: true, valor: (f) => Number(f.cantidad).toLocaleString("es-CL") },
+      { titulo: "Cantidad", n: true, valor: (f) => num(f.cantidad) },
       { titulo: "P. unitario", n: true, valor: (f) => pesos(f.p_unitario) },
       { titulo: "P. total", n: true, valor: (f) => pesos(f.p_total) },
-      { titulo: "Ejecutado", n: true, valor: (f) => Number(f.cant_acumulada).toLocaleString("es-CL") },
+      { titulo: "Ejecutado", n: true, valor: (f) => num(f.cant_acumulada) },
       { titulo: "Avance", n: true, valor: (f) => pct(f.avance_pct) },
       { titulo: "Monto avance", n: true, valor: (f) => pesos(f.monto_avance) },
       { titulo: "Saldo", n: true, valor: (f) => pesos(f.saldo_monto) },
-      { titulo: "Incidencia", n: true, valor: (f) => pct(f.incidencia, 2) },
+      { titulo: "Incidencia", n: true, valor: (f) => pct(f.incidencia) },
     ],
-    filas,
-    { clase: (f) => (f.avance_pct >= 1 ? "nivel-1" : "") }
+    filas
   );
 }
 
@@ -291,16 +491,16 @@ async function cargarSemanal() {
   const hasta = $("#semanal-hasta").value || estado.fecha;
   const r = await api(`/obras/${estado.obraId}/reportes/semanal?desde=${desde}&hasta=${hasta}`);
   $("#descarga-semanal").href =
-    `/api/obras/${estado.obraId}/reportes/semanal.xlsx?desde=${desde}&hasta=${hasta}`;
+    `${API}/api/obras/${estado.obraId}/reportes/semanal.xlsx?desde=${desde}&hasta=${hasta}`;
 
   const s = r.resumen;
-  const claseSpi = s.spi === null ? "" : s.spi >= 1 ? "verde" : s.spi >= 0.8 ? "amarillo" : "rojo";
   $("#resumen-semanal").innerHTML = [
     kpi("Real acumulado", pct(s.real_acumulado)),
     kpi("Programado acumulado", pct(s.programado_acumulado)),
     kpi("Desviación", s.desviacion_pp.toFixed(2) + " p.p.", "real − programado",
         s.desviacion_pp >= 0 ? "verde" : "rojo"),
-    kpi("SPI", s.spi === null ? "—" : s.spi.toFixed(2), "<1 = atrasado", claseSpi),
+    kpi("SPI", s.spi === null ? "—" : s.spi.toFixed(2), "<1 = atrasado",
+        s.spi === null ? "" : s.spi >= 1 ? "verde" : s.spi >= 0.8 ? "amarillo" : "rojo"),
     kpi("Atraso", s.atraso_semanas + " sem"),
     kpi("Término proyectado", s.proyeccion_termino || "—"),
   ].join("");
@@ -329,8 +529,8 @@ async function cargarSemanal() {
       { titulo: "Ítem", valor: (f) => f.codigo },
       { titulo: "Descripción", valor: (f) => f.descripcion },
       { titulo: "Un.", valor: (f) => f.unidad || "" },
-      { titulo: "Programado", n: true, valor: (f) => Number(f.cantidad_programada).toLocaleString("es-CL") },
-      { titulo: "Ejecutado", n: true, valor: (f) => Number(f.cantidad_ejecutada).toLocaleString("es-CL") },
+      { titulo: "Programado", n: true, valor: (f) => num(f.cantidad_programada) },
+      { titulo: "Ejecutado", n: true, valor: (f) => num(f.cantidad_ejecutada) },
       { titulo: "Avance prog.", n: true, valor: (f) => pct(f.avance_programado) },
       { titulo: "Avance real", n: true, valor: (f) => pct(f.avance_real) },
       { titulo: "Atraso", n: true, valor: (f) => f.atraso_pp.toFixed(1) + " p.p." },
@@ -366,7 +566,10 @@ async function cargarEstadosPago() {
       [
         { titulo: "N°", valor: (e) => e.numero },
         { titulo: "Corte", valor: (e) => e.fecha_corte },
-        { titulo: "Estado", valor: (e) => pastilla(e.estado) + (e.provisional ? " " + pastilla("PROVISIONAL") : "") },
+        {
+          titulo: "Estado",
+          valor: (e) => pastilla(e.estado) + (e.provisional ? " " + pastilla("PROVISIONAL") : ""),
+        },
         { titulo: "Total período", n: true, valor: (e) => pesos(e.total) },
         { titulo: "Líquido", n: true, valor: (e) => pesos(e.liquido) },
         { titulo: "% acumulado", n: true, valor: (e) => pct(e.pct_acumulado) },
@@ -375,8 +578,8 @@ async function cargarEstadosPago() {
           valor: (e) =>
             `<button class="boton mini" onclick="verEP(${e.id})">Ver</button>
              ${e.estado === "BORRADOR" ? `<button class="boton mini secundario" onclick="aprobarEP(${e.id})">Aprobar</button>` : ""}
-             <a class="boton mini secundario" href="/api/estados-pago/${e.id}/xlsx">Excel</a>
-             <a class="boton mini secundario" href="/api/estados-pago/${e.id}/imprimir" target="_blank">Imprimir</a>`,
+             <a class="boton mini secundario" href="${API}/api/estados-pago/${e.id}/xlsx">Excel</a>
+             <a class="boton mini secundario" href="${API}/api/estados-pago/${e.id}/imprimir" target="_blank">Imprimir</a>`,
         },
       ],
       eps
@@ -403,11 +606,11 @@ window.verEP = async function (id) {
       </div>
       ${r.advertencias.filter(Boolean).map((a) => `<p class="leyenda provisional">⚠ ${a}</p>`).join("")}
       <div class="grid-2">
-        <div>${tabla(
+        <div class="scroll-x">${tabla(
           [
             { titulo: "Ítem", valor: (d) => d.codigo },
             { titulo: "Descripción", valor: (d) => d.descripcion },
-            { titulo: "Del período", n: true, valor: (d) => Number(d.cant_periodo).toLocaleString("es-CL") },
+            { titulo: "Del período", n: true, valor: (d) => num(d.cant_periodo) },
             { titulo: "% acum.", n: true, valor: (d) => pct(d.pct_acumulado) },
             { titulo: "Monto período", n: true, valor: (d) => pesos(d.monto_periodo) },
           ],
@@ -472,8 +675,7 @@ async function cargarParametros() {
   const historial = await api(`/obras/${estado.obraId}/parametros/historial`);
   const porClave = {};
   historial.forEach((h) => {
-    porClave[h.clave] = porClave[h.clave] || [];
-    porClave[h.clave].push(h);
+    (porClave[h.clave] = porClave[h.clave] || []).push(h);
   });
 
   const filas = catalogo.map((c) => ({
@@ -487,18 +689,14 @@ async function cargarParametros() {
     [
       { titulo: "Parámetro", valor: (f) => f.etiqueta },
       { titulo: "Clave", valor: (f) => `<code>${f.clave}</code>` },
-      {
-        titulo: "Valor vigente",
-        n: true,
-        valor: (f) => (f.tipo === "PORCENTAJE" ? pct(f.valor) : f.valor),
-      },
+      { titulo: "Valor vigente", n: true, valor: (f) => (f.tipo === "PORCENTAJE" ? pct(f.valor) : f.valor) },
       { titulo: "Desde", valor: (f) => (f.desde ? f.desde.vigente_desde : "defecto del sistema") },
       { titulo: "Vigencias", n: true, valor: (f) => f.vigencias },
       { titulo: "Descripción", valor: (f) => f.descripcion || "" },
     ],
     filas
   );
-  $("#param-desde").value = $("#param-desde").value || estado.fecha;
+  if (!$("#param-desde").value) $("#param-desde").value = estado.fecha;
   cargarHistorialParametro();
 }
 
@@ -566,7 +764,7 @@ async function cargarIndicadores() {
   $("#serie-indicador").innerHTML = tabla(
     [
       { titulo: "Fecha", valor: (f) => f.fecha },
-      { titulo: "Valor", n: true, valor: (f) => Number(f.valor).toLocaleString("es-CL") },
+      { titulo: "Valor", n: true, valor: (f) => num(f.valor) },
       { titulo: "Fuente", valor: (f) => f.fuente },
       { titulo: "Estado", valor: (f) => pastilla(f.estado) },
       { titulo: "Nota", valor: (f) => f.nota || "" },
@@ -652,5 +850,31 @@ async function cargarValidaciones() {
     filas
   );
 }
+
+// --------------------------------------------------------------------------
+// PWA: instalación en Android y funcionamiento sin conexión
+// --------------------------------------------------------------------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
+let promptInstalacion = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  promptInstalacion = e;
+  $("#btn-instalar").classList.remove("oculto");
+});
+$("#btn-instalar").onclick = async () => {
+  if (!promptInstalacion) return;
+  promptInstalacion.prompt();
+  await promptInstalacion.userChoice;
+  promptInstalacion = null;
+  $("#btn-instalar").classList.add("oculto");
+};
+window.addEventListener("appinstalled", () => $("#btn-instalar").classList.add("oculto"));
+window.addEventListener("online", () => $("#sin-conexion").classList.add("oculto"));
+window.addEventListener("offline", () => $("#sin-conexion").classList.remove("oculto"));
 
 iniciar().catch((e) => avisar(e.message, true));

@@ -2,60 +2,114 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3864">
+<meta name="description" content="Control de avance de obra: presupuesto, programación semanal y estados de pago.">
 <title>Gestión de Obra</title>
-<link rel="stylesheet" href="/static/styles.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Obra">
+<link rel="stylesheet" href="/styles.css">
+<script src="/config.js"></script>
 </head>
 <body>
 <header>
   <div class="marca">
-    <strong>Gestión de Obra</strong>
-    <span class="sub">avance real · estados de pago · programación semanal</span>
+    <img src="/icons/icon-192.png" alt="" width="28" height="28">
+    <div>
+      <strong>Gestión de Obra</strong>
+      <span class="sub">avance real · estados de pago · programación</span>
+    </div>
   </div>
   <div class="contexto">
-    <label>Obra activa
+    <label>Obra
       <select id="selector-obra"></select>
     </label>
     <label>Fecha de corte
       <input type="date" id="fecha-corte">
     </label>
+    <button id="btn-instalar" class="boton fantasma oculto">Instalar app</button>
   </div>
 </header>
 
-<nav id="pestanas">
-  <button data-vista="tablero" class="activa">Tablero</button>
-  <button data-vista="presupuesto">Avance vs presupuesto</button>
-  <button data-vista="semanal">Avance vs programa</button>
-  <button data-vista="estados-pago">Estados de pago</button>
-  <button data-vista="parametros">Parámetros</button>
-  <button data-vista="indicadores">Indicadores</button>
-  <button data-vista="validaciones">Validaciones</button>
+<nav id="pestanas" aria-label="Secciones">
+  <button data-vista="panel" class="activa"><span class="ico">▦</span>Panel</button>
+  <button data-vista="presupuesto"><span class="ico">≡</span>Presupuesto</button>
+  <button data-vista="semanal"><span class="ico">◷</span>Programa</button>
+  <button data-vista="estados-pago"><span class="ico">$</span>Pagos</button>
+  <button data-vista="parametros"><span class="ico">⚙</span>Parámetros</button>
+  <button data-vista="indicadores"><span class="ico">↗</span>Indicadores</button>
+  <button data-vista="validaciones"><span class="ico">!</span>Validaciones</button>
 </nav>
 
 <main>
-  <!-- TABLERO -->
-  <section id="vista-tablero" class="vista activa">
-    <div id="kpis" class="kpis"></div>
+  <!-- PANEL DE GERENCIA -->
+  <section id="vista-panel" class="vista activa">
+    <div id="cartera-kpis" class="kpis"></div>
+
     <div class="panel">
-      <div class="panel-cabecera"><h2>Curva S — programado vs real</h2></div>
-      <div id="curva-s"></div>
+      <div class="panel-cabecera">
+        <h2>Obras en cartera</h2>
+        <span class="nota">Toca una obra para ver su detalle</span>
+      </div>
+      <div id="cartera-obras" class="tarjetas-obra"></div>
     </div>
-    <div class="grid-2">
-      <div class="panel">
-        <div class="panel-cabecera"><h2>Partidas críticas por monto de atraso</h2></div>
-        <div id="criticas-tablero"></div>
+
+    <div class="panel" id="panel-obra">
+      <div class="panel-cabecera">
+        <h2 id="panel-obra-titulo">Detalle de la obra</h2>
+        <span class="nota" id="panel-obra-sub"></span>
       </div>
-      <div class="panel">
-        <div class="panel-cabecera"><h2>Estados de pago</h2></div>
-        <div id="eps-tablero"></div>
+
+      <div class="filtros" id="filtros-panel">
+        <label>Capítulo
+          <select id="f-capitulo"><option value="">Todos</option></select>
+        </label>
+        <label>Estado del programa
+          <select id="f-semaforo">
+            <option value="">Todos</option>
+            <option value="ROJO">En rojo (&lt;80% del programa)</option>
+            <option value="AMARILLO">En amarillo (80–99%)</option>
+            <option value="VERDE">Al día</option>
+            <option value="SIN_PROGRAMA">Sin programa</option>
+          </select>
+        </label>
+        <label>Ejecución
+          <select id="f-estado">
+            <option value="">Todas</option>
+            <option value="SIN_INICIAR">Sin iniciar</option>
+            <option value="EN_CURSO">En curso</option>
+            <option value="TERMINADA">Terminadas</option>
+          </select>
+        </label>
+        <label>Ordenar por
+          <select id="f-orden">
+            <option value="incidencia">Peso en el contrato</option>
+            <option value="atraso">Monto de atraso</option>
+            <option value="avance">Menor avance</option>
+            <option value="codigo">Código de ítem</option>
+          </select>
+        </label>
+        <label class="crece">Buscar
+          <input type="search" id="f-texto" placeholder="Partida o descripción…">
+        </label>
+        <button id="f-limpiar" class="boton fantasma">Limpiar</button>
       </div>
+
+      <div id="panel-kpis" class="kpis compactas"></div>
+      <div id="panel-curva"></div>
+      <div id="panel-resumen-filtro" class="leyenda"></div>
+      <div id="panel-partidas" class="scroll-x"></div>
+      <div id="panel-capitulos" class="scroll-x"></div>
     </div>
   </section>
 
   <!-- PRESUPUESTO -->
   <section id="vista-presupuesto" class="vista">
     <div class="barra">
-      <label><input type="checkbox" id="solo-aprobados" checked> Solo avance aprobado</label>
+      <label class="alineada"><input type="checkbox" id="solo-aprobados" checked> Solo avance aprobado</label>
       <a id="descarga-presupuesto" class="boton" href="#">Exportar a Excel</a>
     </div>
     <div id="cierre-presupuesto" class="kpis"></div>
@@ -69,11 +123,11 @@
     <div class="grid-2">
       <div class="panel">
         <div class="panel-cabecera"><h2>Avance por capítulo (ponderado por costo)</h2></div>
-        <div id="capitulos"></div>
+        <div id="capitulos" class="scroll-x"></div>
       </div>
       <div class="panel">
         <div class="panel-cabecera"><h2>Dónde está el dinero — top 10 por incidencia</h2></div>
-        <div id="top-incidencia"></div>
+        <div id="top-incidencia" class="scroll-x"></div>
       </div>
     </div>
   </section>
@@ -93,7 +147,7 @@
       <div id="tabla-semanal" class="scroll-x"></div>
     </div>
     <div class="panel">
-      <div class="panel-cabecera"><h2>Partidas críticas — ordenadas por monto de atraso, no por porcentaje</h2></div>
+      <div class="panel-cabecera"><h2>Partidas críticas — ordenadas por monto de atraso</h2></div>
       <div id="tabla-criticas" class="scroll-x"></div>
     </div>
   </section>
@@ -102,7 +156,7 @@
   <section id="vista-estados-pago" class="vista">
     <div class="barra">
       <label>Fecha de corte <input type="date" id="ep-fecha"></label>
-      <label>Días de atraso <input type="number" id="ep-atraso" value="0" min="0" style="width:5rem"></label>
+      <label>Días de atraso <input type="number" id="ep-atraso" value="0" min="0"></label>
       <button id="btn-generar-ep" class="boton">Generar estado de pago</button>
     </div>
     <div id="lista-eps"></div>
@@ -146,7 +200,7 @@
     <div class="panel">
       <div class="panel-cabecera">
         <h2>Indicadores económicos</h2>
-        <span class="nota">Banco Central (oficial) · SII (contraste) · mindicador.cl (respaldo no oficial)</span>
+        <span class="nota">Banco Central (oficial) · SII (contraste) · mindicador.cl (respaldo)</span>
       </div>
       <div class="barra">
         <label>Código
@@ -156,7 +210,7 @@
         </label>
         <label>Desde <input type="date" id="ind-desde"></label>
         <label>Hasta <input type="date" id="ind-hasta"></label>
-        <button id="btn-sincronizar" class="boton">Sincronizar desde la fuente</button>
+        <button id="btn-sincronizar" class="boton">Sincronizar</button>
       </div>
       <div id="estado-sincronizacion"></div>
       <div id="serie-indicador" class="scroll-x"></div>
@@ -192,7 +246,16 @@
   </section>
 </main>
 
+<nav id="nav-movil" aria-label="Secciones (móvil)">
+  <button data-vista="panel" class="activa"><span>▦</span>Panel</button>
+  <button data-vista="presupuesto"><span>≡</span>Presupuesto</button>
+  <button data-vista="semanal"><span>◷</span>Programa</button>
+  <button data-vista="estados-pago"><span>$</span>Pagos</button>
+  <button data-vista="validaciones"><span>!</span>Alertas</button>
+</nav>
+
 <div id="aviso" class="aviso oculto"></div>
-<script src="/static/app.js"></script>
+<div id="sin-conexion" class="sin-conexion oculto">Sin conexión — mostrando los últimos datos guardados</div>
+<script src="/app.js"></script>
 </body>
 </html>

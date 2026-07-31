@@ -95,7 +95,71 @@ def cargar_mediciones(db, obra, presupuesto, hoja: str, fecha_esperada: dt.date)
     return cargadas
 
 
-def main(reset: bool = False) -> None:
+PARAMETROS_DEMO = {
+    **PARAMETROS_RCR,
+    "pct_gg": "0.12",
+    "pct_utilidad": "0.15",
+    "base_utilidad": "CD+GG",
+    "pct_retencion": "0.05",
+}
+
+
+def obra_demo(db, org, plantilla_ruta: str) -> None:
+    """Segunda obra, solo para ver el panel de cartera con más de una obra.
+
+    Reutiliza el mismo itemizado con otros parámetros contractuales y un avance
+    menor. Queda marcada como (demo) para no confundirla con la obra real.
+    """
+    nombre = "Reposición Liceo Coquimbo (demo)"
+    if db.scalars(select(Obra).where(Obra.nombre == nombre)).first():
+        return
+    obra = Obra(
+        organizacion_id=org.id,
+        nombre=nombre,
+        mandante="Servicio Local de Educación Pública Puerto Cordillera",
+        contratista="Constructora RCR SpA",
+        ubicacion="Coquimbo",
+        fecha_inicio=dt.date(2025, 1, 6),
+        plazo_dias=240,
+    )
+    db.add(obra)
+    db.commit()
+    P.aplicar_plantilla(db, obra.id, PARAMETROS_DEMO, obra.fecha_inicio, usuario="seed")
+
+    resultado = importar_plantilla(db, obra, plantilla_ruta)
+    presupuesto = resultado.presupuesto
+    cal = CalendarioObra(db, obra.id, "1,2,3,4,5", 8.5)
+    PR.generar_linea_base(db, presupuesto, cal, obra.fecha_inicio, 240, Decimal("1"))
+
+    # Avance parcial: un tercio de lo medido en el primer corte de la obra real
+    _, mediciones = leer_mediciones(plantilla_ruta, "avance real ")
+    fecha = dt.date(2025, 3, 3)
+    partidas = {
+        p.codigo: p
+        for p in db.scalars(select(Partida).where(Partida.presupuesto_id == presupuesto.id)).all()
+    }
+    for codigo, cantidad in mediciones.items():
+        p = partidas.get(codigo)
+        if p is None or not p.es_medible:
+            continue
+        db.add(
+            AvanceSemanal(
+                obra_id=obra.id,
+                partida_id=p.id,
+                iso_semana=fecha.strftime("%G-W%V"),
+                fecha_medicion=fecha,
+                cantidad_acumulada=cantidad / 3,
+                estado="APROBADO",
+                registrado_por="jefe_terreno",
+                aprobado_por="ito",
+            )
+        )
+    db.commit()
+    res = calcular_avance(db, presupuesto, fecha)
+    print(f"Obra demo creada: avance {res.pct * 100:.2f}% (GG 12%, utilidad 15% sobre CD+GG)")
+
+
+def main(reset: bool = False, demo: bool = False) -> None:
     if reset and engine.url.database and os.path.exists(engine.url.database):
         os.remove(engine.url.database)
     Base.metadata.create_all(engine)
@@ -173,9 +237,12 @@ def main(reset: bool = False) -> None:
         aprobar_estado_pago(db, primero, "oficina_tecnica")
         print(f"EP N°{primero.numero} aprobado con snapshot de parámetros congelado")
 
+    if demo:
+        obra_demo(db, org, RUTA_PLANTILLA)
+
     db.close()
     print("\nListo. Levanta la aplicación con:  uvicorn app.main:app --reload")
 
 
 if __name__ == "__main__":
-    main(reset="--reset" in sys.argv)
+    main(reset="--reset" in sys.argv, demo="--demo-cartera" in sys.argv)

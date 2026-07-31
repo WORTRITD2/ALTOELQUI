@@ -5,12 +5,18 @@ de precios unitarios) que hoy se opera en Excel: importa la plantilla, programa 
 semanas laborales hábiles, registra avance real en terreno, emite estados de pago y reporta el
 avance contra presupuesto y contra programa.
 
+La interfaz es una **PWA instalable en Android** y responsive: en escritorio muestra tablas
+completas; en el teléfono, tarjetas, navegación inferior y funcionamiento sin señal. El **panel de
+control de gerencia** resume la cartera de obras y permite filtrar el detalle por capítulo,
+semáforo, estado de ejecución o texto.
+
 ## Puesta en marcha
 
 ```bash
 cd backend
 pip install -r requirements.txt
 python seed.py --reset          # carga la obra de referencia completa
+# python seed.py --reset --demo-cartera   # agrega una segunda obra de demostración
 uvicorn app.main:app --reload   # http://127.0.0.1:8000
 ```
 
@@ -45,6 +51,7 @@ Base de datos: SQLite por defecto (`backend/obra.db`, sin servidor). Para Postgr
 | **Programación** | Reparte cada partida en semanas ISO usando el rendimiento del APU (`jornadas = cantidad / rendimiento`), descontando feriados |
 | **Avance** | Se registra **cantidad ejecutada**, nunca un porcentaje. Flujo `EN_TERRENO → REVISADO → APROBADO` |
 | **Estados de pago** | `EP n = acumulado − acumulado anterior`, con GG, utilidad, IVA, anticipo, retención y multas. Al aprobar congela un snapshot de parámetros e indicadores: el EP queda inmutable |
+| **Panel de gerencia** | Cartera de obras con semáforo y alertas, y detalle de una obra filtrable por capítulo, estado del programa, ejecución o texto — filtrado y paginado en el servidor |
 | **Reportes** | Avance vs presupuesto · avance vs programa por semana hábil (curva S, Δ, SPI, partidas críticas por monto) · estado de pago · tablero. Exportables a Excel; el EP tiene vista de impresión con pie de trazabilidad |
 | **Anexo 4** | Regenera el formato oficial de APU para el mandante desde los datos, sin reescritura manual |
 
@@ -66,7 +73,9 @@ backend/
       calculo.py         avance, cierre económico y estados de pago
   tests/                 criterios de aceptación
   seed.py                carga la obra de referencia
-frontend/                interfaz (HTML + JS sin build, servida por el backend)
+frontend/                PWA: HTML + JS sin build, service worker, manifest e iconos
+netlify.toml             publicación del frontend en Netlify
+netlify/build.sh         genera config.js y el proxy /api/* desde la variable API_URL
 plantilla/               archivo de referencia
 docs/                    análisis de la plantilla
 prompt-app-gestion-obra.md   especificación de la que nace todo esto
@@ -93,6 +102,7 @@ prompt-app-gestion-obra.md   especificación de la que nace todo esto
 | [`prompt-app-gestion-obra.md`](prompt-app-gestion-obra.md) | Especificación completa: flujo, modelo de datos, fórmulas, reportes y criterios de aceptación |
 | [`docs/analisis-plantilla-presupuesto.md`](docs/analisis-plantilla-presupuesto.md) | Análisis celda a celda de la plantilla y defectos detectados |
 | [`docs/hallazgos-plantilla-real.md`](docs/hallazgos-plantilla-real.md) | Lo que el importador encontró al procesar la plantilla real |
+| [`docs/despliegue-netlify-android.md`](docs/despliegue-netlify-android.md) | Publicar en Netlify, instalar en Android (PWA y TWA) y qué se hizo para que escale |
 
 ## Pendiente
 

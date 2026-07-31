@@ -5,7 +5,6 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
@@ -23,9 +22,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# En despliegue, ORIGENES_PERMITIDOS lista los dominios del frontend
+# (p. ej. "https://mi-obra.netlify.app,https://obra.midominio.cl").
+ORIGENES = [o.strip() for o in os.getenv("ORIGENES_PERMITIDOS", "*").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ORIGENES,
+    allow_credentials="*" not in ORIGENES,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -48,9 +52,8 @@ def salud() -> dict:
     return {"estado": "ok"}
 
 
+# El frontend se sirve en la raíz para que la PWA (service worker, manifest e
+# iconos) tenga el mismo alcance que en Netlify. Se monta al final: las rutas
+# de la API ya están registradas y tienen prioridad.
 if os.path.isdir(FRONTEND):
-    app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
-
-    @app.get("/")
-    def inicio() -> FileResponse:
-        return FileResponse(os.path.join(FRONTEND, "index.html"))
+    app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")

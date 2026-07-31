@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import export_excel, reportes
+from . import export_excel, panel, reportes
 from .core import parametros as P
 from .core import programacion as PR
 from .core.calculo import (
@@ -722,6 +722,54 @@ Avance acumulado: {r['acumulado']['pct']*100:.2f}%</p>
 <table class="cierre">{cierre}</table>
 <footer>Parámetros e indicadores usados ({r['origen_parametros']}):<br>{pie}</footer>
 </body></html>"""
+
+
+# --------------------------------------------------------------------------
+# Panel de control de gerencia
+# --------------------------------------------------------------------------
+@router.get("/panel/cartera")
+def panel_cartera(
+    fecha: str | None = None, solo_aprobados: bool = True, db: Session = Depends(get_session)
+):
+    """Todas las obras de un vistazo, con semáforo y alertas."""
+    return panel.cartera(db, _fecha(fecha), solo_aprobados)
+
+
+@router.get("/panel/obras/{obra_id}")
+def panel_obra(
+    obra_id: int,
+    fecha: str | None = None,
+    capitulo: str | None = None,
+    semaforo: str | None = None,
+    estado: str | None = None,
+    texto: str | None = None,
+    incidencia_min: float = 0.0,
+    orden: str = "incidencia",
+    limite: int = 200,
+    desplazamiento: int = 0,
+    solo_aprobados: bool = True,
+    db: Session = Depends(get_session),
+):
+    """Detalle de una obra con los filtros aplicados en el servidor."""
+    obra = _obra(db, obra_id)
+    pres = _presupuesto(db, obra_id)
+    filtros = panel.Filtros(
+        capitulo=capitulo,
+        semaforo=semaforo,
+        estado=estado,
+        texto=texto,
+        incidencia_min=incidencia_min,
+        orden=orden,
+        limite=min(limite, 500),
+        desplazamiento=desplazamiento,
+    )
+    return panel.obra_filtrada(db, obra, pres, _fecha(fecha), filtros, solo_aprobados)
+
+
+@router.get("/panel/obras/{obra_id}/capitulos")
+def panel_capitulos(obra_id: int, db: Session = Depends(get_session)):
+    _obra(db, obra_id)
+    return panel.capitulos_disponibles(db, _presupuesto(db, obra_id))
 
 
 # --------------------------------------------------------------------------
