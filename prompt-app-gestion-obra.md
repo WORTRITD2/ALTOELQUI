@@ -123,7 +123,8 @@ validaciones de salida y registro de auditoría (quién, cuándo, qué cambió).
 
 ```
 [1] PLANTILLA / PRESUPUESTO
-    Importar plantilla → itemizado jerárquico + APU + parámetros (GG, utilidad, IVA, leyes sociales)
+    Seleccionar/crear OBRA → fijar sus parámetros con vigencia (§4) desde la plantilla de la organización
+    Importar plantilla → itemizado jerárquico + APU
     Estado: BORRADOR → VALIDADO → CONTRATO VIGENTE (línea base congelada, versionada)
         ↓
 [2] PROGRAMACIÓN
@@ -134,7 +135,7 @@ validaciones de salida y registro de auditoría (quién, cuándo, qué cambió).
         ↓
 [3] AVANCE REAL (ciclo semanal)
     Cada semana hábil, el jefe de terreno registra `Cant avance` acumulada por partida
-    El sistema calcula avance % y monto avance con las fórmulas del §4
+    El sistema calcula avance % y monto avance con las fórmulas del §5
     Adjuntos: fotos, libro de obra, medición en terreno
     Estado: EN TERRENO → REVISADO (ITO/oficina técnica) → APROBADO
         ↓
@@ -144,7 +145,7 @@ validaciones de salida y registro de auditoría (quién, cuándo, qué cambió).
     Aplica GG, utilidad, IVA; descuenta anticipo y retención si el contrato los define
     Estado: BORRADOR → PRESENTADO → OBSERVADO → APROBADO → PAGADO
         ↓
-[5] REPORTES  (§5)
+[5] REPORTES  (§6)
     Avance real vs presupuesto · Avance real vs programación semanal · Estado de pago
         ↓
 [6] CIERRE
@@ -164,7 +165,162 @@ Reglas del flujo:
 
 ---
 
-## 4. Reglas de cálculo (implementar exactamente)
+## 4. Parámetros de obra e indicadores económicos
+
+Ningún porcentaje, tarifa ni valor de moneda puede estar escrito en el código. Todos son
+**parámetros seleccionables por obra y versionados en el tiempo**. Los del §2 (15% GG, 20%
+utilidad, 19% IVA, 50% leyes sociales) son solo los valores de *esta* obra en *esa* fecha.
+
+### 4.1. Selección de obra como contexto
+
+La aplicación es multi-obra. Al iniciar sesión se **selecciona la obra activa** y todo —
+itemizado, programación, avances, EP, reportes — queda circunscrito a ella. La cabecera muestra
+siempre obra activa, contrato vigente, semana en curso y último EP.
+
+Jerarquía de valores, de menor a mayor prioridad:
+
+```
+1. Valores por defecto del sistema (Chile: IVA 19%, leyes sociales 50%, semana lun–vie)
+2. Plantilla de parámetros de la organización (los que la constructora usa habitualmente)
+3. Parámetros de la obra          ← se fijan al crear la obra, desde la plantilla o a mano
+4. Vigencia específica dentro de la obra (§4.3)
+```
+
+Crear una obra nueva debe ser: elegir plantilla de parámetros → ajustar lo que difiera →
+importar el presupuesto. Nunca partir de cero.
+
+### 4.2. Parámetros contractuales de la obra
+
+Constantes del contrato, pero **editables con vigencia** porque cambian por ley, por resolución
+del mandante o por modificación de contrato.
+
+| Parámetro | Clave | Valor en la obra de referencia | Se aplica sobre |
+|---|---|---:|---|
+| Gastos generales | `pct_gg` | 15% | Costo directo del corte |
+| Utilidad | `pct_utilidad` | 20% | Costo directo del corte (no sobre CD+GG) |
+| IVA | `pct_iva` | 19% | Neto |
+| Leyes sociales | `pct_leyes_sociales` | 50% | Mano de obra del APU |
+| Anticipo | `pct_anticipo` | según bases | Monto del EP (amortización) |
+| Retención | `pct_retencion` | según bases | Monto del EP |
+| Multa por atraso | `multa_diaria` | en UTM o ‰ del contrato | Días de atraso |
+| Plazo contractual | `plazo_dias` | días corridos o hábiles | Programación |
+| Jornada semanal | `jornada` | días hábiles y horas/día | Semanas hábiles (§5) |
+| Moneda del contrato | `moneda` | CLP o UF | Todo el cálculo |
+| Mecanismo de reajuste | `reajuste` | sin reajuste / UF / polinómico / IPC | Monto del EP |
+| Base de cálculo de la utilidad | `base_utilidad` | `CD` o `CD+GG` | Cierre económico |
+| Redondeo | `politica_redondeo` | pesos, solo en totales | Cierre económico |
+
+`base_utilidad` es un parámetro y no una constante justamente porque otras bases de licitación
+calculan la utilidad sobre CD+GG; el sistema debe soportar ambas sin tocar código.
+
+### 4.3. Vigencia temporal: editar sin reescribir el pasado
+
+**Prohibido el `UPDATE` destructivo sobre un parámetro.** Editar un parámetro **cierra la
+vigencia anterior y abre una nueva**:
+
+```
+ParametroObra(obra_id, clave, valor, vigente_desde, vigente_hasta, motivo,
+              documento_respaldo, usuario, creado_en)
+
+valor_vigente(obra, clave, fecha) = registro cuyo intervalo [vigente_desde, vigente_hasta)
+                                     contiene fecha        ' vigente_hasta NULL = vigente hoy
+```
+
+Reglas:
+
+- Todo cálculo resuelve sus parámetros **con la fecha de corte del período**, nunca con "hoy".
+- Al aprobar un estado de pago se **congela un snapshot** de todos los parámetros e indicadores
+  usados. Reabrir un EP de hace un año debe mostrar exactamente los mismos números, aunque los
+  parámetros hayan cambiado diez veces desde entonces.
+- Un cambio de parámetro con vigencia anterior a un EP aprobado **se rechaza**: exige nota de
+  ajuste explícita, con motivo y documento de respaldo.
+- Toda edición exige `motivo` y admite adjuntar el respaldo (resolución, ley, acta).
+- La pantalla de parámetros muestra una **línea de tiempo** por clave, con quién cambió qué,
+  cuándo y por qué.
+- Antes de confirmar, un **simulador de impacto** muestra cuánto cambiarían los EP futuros con el
+  nuevo valor.
+
+### 4.4. Indicadores económicos externos (UF, UTM, IPC y otros)
+
+Series temporales obtenidas de fuentes oficiales chilenas, no digitadas a mano.
+
+| Indicador | Frecuencia | Uso en obra |
+|---|---|---|
+| **UF** | Diaria | Contratos y EP expresados en UF; reajuste |
+| **UTM** | Mensual | Multas, garantías, topes legales |
+| **UTA** | Anual (= UTM × 12) | Topes tributarios |
+| **IPC** | Mensual (INE) | Reajuste polinómico, fórmulas de las bases |
+| **Dólar observado** | Días hábiles | Insumos importados |
+| **Ingreso mínimo mensual** | Por ley | Validación de tarifas de mano de obra del APU |
+| **Índices de costos de la construcción** | Mensual | Reajuste polinómico por familia de insumos |
+
+**Fuentes oficiales, en orden de prioridad** (implementar con proveedor conmutable):
+
+1. **Banco Central de Chile — Base de Datos Estadísticos** (fuente oficial de UF, UTM, dólar
+   observado, IPC). Servicio web REST/SOAP con credenciales gratuitas previa inscripción;
+   `https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx` con `function=GetSeries` y el código de
+   serie (p. ej. UF diaria `F073.UFF.PRE.Z.D`, UTM mensual `F073.UTR.PRE.Z.M`). **Verificar el
+   código exacto de cada serie en el catálogo del BCCh antes de codificar** y dejarlo como
+   configuración, no incrustado.
+2. **SII — «Valores y fechas»** (`sii.cl`): tablas oficiales de UF, UTM y UTA. Usar como
+   **contraste**: si el valor del SII y el del BCCh difieren, alertar en vez de elegir en silencio.
+3. **INE**: IPC e índices de costos de la construcción.
+4. **`mindicador.cl`**: API JSON pública y gratuita, sin credenciales
+   (`https://mindicador.cl/api/uf/dd-mm-aaaa`). Útil como respaldo y para desarrollo, **marcada
+   siempre como fuente no oficial** en el registro.
+5. **Feriados legales** (determinan la semana hábil del §5): API de feriados del gobierno
+   (`apis.digital.gob.cl/fl/feriados/<año>`), con carga manual de respaldo y edición por obra
+   para feriados regionales, días de paralización o cierres de faena. Un cambio en el calendario
+   **no debe recalcular semanas ya cerradas en un EP aprobado**.
+
+**Reglas de sincronización y de uso:**
+
+```
+IndicadorValor(codigo, fecha, valor, fuente, url_origen, obtenido_en,
+               estado[CONFIRMADO|PROVISIONAL], usuario_si_manual)
+```
+
+- Job diario (p. ej. 09:00 hora de Chile) que consulta y persiste; reintentos con backoff y
+  **backfill automático de huecos** al detectar fechas faltantes.
+- **La UF se publica con desfase**: el valor rige del día 10 de un mes al día 9 del siguiente, en
+  función del IPC del mes anterior. El sistema debe distinguir valor **publicado** de valor
+  **proyectado**, y marcar como `PROVISIONAL` todo cálculo que use un valor aún no publicado.
+- Si la fuente no responde: usar el último valor disponible, marcar el cálculo como provisional y
+  **mostrar la advertencia en pantalla y en el PDF**. Jamás fallar en silencio ni improvisar un
+  valor.
+- Un valor ya usado en un EP aprobado **no se sobrescribe** aunque la fuente lo corrija: se
+  registra la corrección como un valor nuevo y se avisa qué EP quedaron afectados.
+- Validaciones de cordura: variación diaria de UF > 0,5%, UTM que no cambia al inicio de mes, o
+  valor fuera de un rango razonable ⇒ marcar para revisión humana.
+- Carga manual permitida solo con rol autorizado, quedando registrada como `fuente = MANUAL` con
+  usuario y motivo.
+
+### 4.5. Uso de los indicadores en el cálculo
+
+- **Contrato en UF**: el itemizado se almacena en UF y cada EP se convierte a pesos con la UF de
+  la fecha que definan las bases (fecha de corte, de presentación o de pago — parámetro
+  `fecha_conversion_uf`, no un supuesto del programador).
+- **Reajuste polinómico**: fórmula configurable por obra, del tipo
+  `R = Σ (peso_k × Índice_k(t) / Índice_k(t₀))`, con los pesos y los índices definidos en las
+  bases. El reporte debe mostrar el desglose del reajuste, no solo el resultado.
+- **Multas en UTM**: se calculan con la UTM del mes del atraso.
+- El PDF de cada EP debe imprimir, al pie, **los valores exactos usados y su fuente**: p. ej.
+  `UF al 17-03-2025 = $38.264,41 (Banco Central de Chile, consultado el 18-03-2025 09:02)`.
+
+### 4.6. Precios de insumos de los APU, también con vigencia
+
+Los materiales, tarifas de mano de obra y equipos de los APU (`$ Unitario`) son precios de una
+fecha. Mantener **listas de precios versionadas** por fecha de vigencia y proveedor, de modo que
+se pueda:
+
+- recalcular un APU a precios de hoy sin alterar el APU contractual congelado;
+- comparar **precio contractual vs precio actual de mercado** por partida, que es la alerta
+  temprana de pérdida de margen (complementa la comparación de rendimientos del §6.2);
+- reutilizar la lista de precios como base para presupuestar la obra siguiente.
+
+---
+
+## 5. Reglas de cálculo (implementar exactamente)
 
 Sea `i` una partida medible, `t` una fecha de corte, `s` una semana laboral hábil.
 
@@ -185,22 +341,31 @@ promedio simple de porcentajes**. Las partidas `INCLUIDO EN GASTOS GENERALES` qu
 numerador y del denominador.
 
 **Cierre económico de un corte**
+
+Todo porcentaje se resuelve con `valor_vigente(obra, clave, t)` del §4.3 — **con la fecha de
+corte `t`, nunca con la fecha actual**:
+
 ```
 CD(t)        = Σ_i monto_avance(i,t)
-GG(t)        = CD(t) × %GG                        ' 0,15 por defecto, parametrizable por obra
-Utilidad(t)  = CD(t) × %Utilidad                  ' 0,20 — sobre costo directo, NO sobre CD+GG
+GG(t)        = CD(t) × pct_gg(t)
+base_util(t) = CD(t)  ó  CD(t) + GG(t)            ' según parámetro base_utilidad
+Utilidad(t)  = base_util(t) × pct_utilidad(t)     ' en la obra de referencia: sobre CD
 Neto(t)      = CD(t) + GG(t) + Utilidad(t)
-IVA(t)       = Neto(t) × 0,19
+IVA(t)       = Neto(t) × pct_iva(t)
 Total(t)     = Neto(t) + IVA(t)
 ```
 
 **Estado de pago n**
 ```
 EP_n = Total(t_n) − Total(t_{n−1})
-Amortización anticipo_n = EP_n × %anticipo
-Retención_n             = EP_n × %retención
-Líquido a pagar_n       = EP_n − amortización − retención (+ reajuste si el contrato lo estipula)
+Reajuste_n              = EP_n × (R(t_n) − 1)     ' según mecanismo del §4.5, 0 si no aplica
+Amortización anticipo_n = EP_n × pct_anticipo(t_n)
+Retención_n             = EP_n × pct_retencion(t_n)
+Multa_n                 = días_atraso × multa_diaria(t_n)   ' convertida con la UTM del mes
+Líquido a pagar_n       = EP_n + Reajuste_n − amortización − retención − multa
 ```
+Si el contrato está en UF: `Total(t)` se calcula en UF y se convierte con
+`UF(fecha_conversion_uf)`, registrando el valor y su fuente en el snapshot del EP.
 
 **Programación semanal**
 ```
@@ -231,7 +396,7 @@ Proyección de término      fecha estimada = f(ritmo real de las últimas 4 sem
 
 ---
 
-## 5. Reportes exigidos
+## 6. Reportes exigidos
 
 Todos: filtrables por capítulo/subcapítulo/partida y por rango de semanas; exportables a
 **PDF y Excel** con el formato de la plantilla; con fecha de corte, número de EP y semana ISO
@@ -278,6 +443,8 @@ Documento formal por EP `n`:
 - Resumen histórico: tabla de todos los EP anteriores con sus montos y % acumulados.
 - Anexos regenerados: APU (`Anexo 4`) de las partidas involucradas, respaldo fotográfico,
   detalle de cubicaciones.
+- Pie de trazabilidad: parámetros vigentes usados (GG, utilidad, IVA, anticipo, retención) e
+  indicadores (UF/UTM) con su valor, fuente y fecha de consulta.
 
 ### 5.4. Tablero (dashboard)
 
@@ -286,7 +453,7 @@ facturar, próximo EP, partidas en rojo, y proyección de término.
 
 ---
 
-## 6. Importador de la plantilla y validaciones
+## 7. Importador de la plantilla y validaciones
 
 El importador debe leer el `.xlsx` de referencia sin adaptación manual previa y **reportar, no
 silenciar, cada anomalía**. Defectos reales presentes en la plantilla que hay que detectar:
@@ -313,15 +480,44 @@ que sirva de estándar para obras nuevas.
 
 ---
 
-## 7. Modelo de datos (mínimo)
+## 8. Modelo de datos (mínimo)
+
+Los porcentajes **no son columnas de `Obra`**: viven en `ParametroObra` con vigencia (§4.3).
 
 ```
-Obra(id, nombre, licitacion_id, mandante, contratista, ubicacion, fecha_inicio, plazo_dias,
-     %gg, %utilidad, %iva, %leyes_sociales, %anticipo, %retencion, calendario_id, estado)
+Organizacion(id, razon_social, rut, plantilla_parametros_id)
+PlantillaParametros(id, organizacion_id, nombre, descripcion)
+PlantillaParametroValor(id, plantilla_id, clave, valor)
+
+Obra(id, organizacion_id, nombre, licitacion_id, mandante, contratista, ubicacion,
+     fecha_inicio, plazo_dias, moneda, calendario_id, estado)
+
+ParametroDefinicion(clave, etiqueta, tipo[PORCENTAJE|MONTO|ENTERO|ENUM|BOOLEAN],
+                    unidad, valor_min, valor_max, valor_defecto_sistema, descripcion)
+ParametroObra(id, obra_id, clave, valor, vigente_desde, vigente_hasta, motivo,
+              documento_respaldo_url, usuario_id, creado_en)
+  ' UNIQUE (obra_id, clave, vigente_desde); sin solapes de intervalo; vigente_hasta NULL = vigente
+
+IndicadorSerie(codigo[UF|UTM|UTA|IPC|USD_OBS|IMM|ICC_*], nombre, frecuencia, decimales,
+               fuente_primaria, codigo_serie_fuente, activo)
+IndicadorValor(id, codigo, fecha, valor, fuente[BCCH|SII|INE|MINDICADOR|MANUAL], url_origen,
+               obtenido_en, estado[CONFIRMADO|PROVISIONAL], usuario_id, nota)
+  ' UNIQUE (codigo, fecha, fuente)
+SincronizacionIndicador(id, codigo, ejecutada_en, rango_desde, rango_hasta,
+                        estado[OK|PARCIAL|ERROR], detalle, valores_nuevos, huecos_detectados)
+
+ListaPrecios(id, organizacion_id, nombre, vigente_desde, vigente_hasta, moneda)
+PrecioInsumo(id, lista_id, tipo[MATERIAL|MANO_OBRA|EQUIPO], codigo, descripcion, unidad,
+             precio, proveedor, fuente)
+
+SnapshotParametros(id, estado_pago_id, parametros_json, indicadores_json, congelado_en)
+  ' fotografía inmutable de todo lo usado para calcular ese EP
+
 Presupuesto(id, obra_id, version, estado, vigente_desde, total_cd, total_contrato)
 Partida(id, presupuesto_id, codigo, codigo_padre, nivel, descripcion, unidad, cantidad,
         p_unitario, p_total, es_agrupador, es_incluida_en_gg, orden)
-APU(id, partida_id, rendimiento, unidad_pago, %gg, %utilidad, %iva)
+APU(id, partida_id, rendimiento, unidad_pago, lista_precios_id, fecha_precios)
+  ' los %gg/%utilidad/%iva del APU NO se guardan aquí: se resuelven vía ParametroObra a fecha_precios
 APURecurso(id, apu_id, tipo[MATERIAL|MANO_OBRA|EQUIPO], descripcion, unidad, cantidad,
            precio_unitario, subtotal)
 Calendario(id, nombre, dias_habiles[], jornada_horas_por_dia)
@@ -336,7 +532,8 @@ AvanceSemanal(id, obra_id, partida_id, semana_id, cantidad_periodo, cantidad_acu
 Adjunto(id, avance_id, tipo, url, tomado_en, geolocalizacion)
 EstadoPago(id, obra_id, numero, semana_inicio_id, semana_fin_id, fecha_corte,
            estado[BORRADOR|PRESENTADO|OBSERVADO|APROBADO|PAGADO],
-           cd, gg, utilidad, neto, iva, total, anticipo, retencion, liquido)
+           cd, gg, utilidad, neto, iva, total, anticipo, retencion, multa, reajuste, liquido,
+           snapshot_parametros_id, uf_conversion, uf_fecha)
 EstadoPagoDetalle(id, estado_pago_id, partida_id, cant_anterior, cant_periodo, cant_acumulada,
                   pct_acumulado, monto_periodo, monto_acumulado)
 ModificacionContrato(id, obra_id, tipo[EXTRAORDINARIA|AUMENTO|DISMINUCION], resolucion,
@@ -346,7 +543,7 @@ Auditoria(id, entidad, entidad_id, accion, usuario, timestamp, datos_antes, dato
 
 ---
 
-## 8. Stack y requisitos no funcionales
+## 9. Stack y requisitos no funcionales
 
 - **Backend**: TypeScript (NestJS) o Python (FastAPI) + PostgreSQL. Cálculos monetarios en enteros
   o `numeric`, nunca en punto flotante binario.
@@ -356,13 +553,18 @@ Auditoria(id, entidad, entidad_id, accion, usuario, timestamp, datos_antes, dato
 - **Carga de avance optimizada para terreno**: vista móvil, funcionamiento offline con
   sincronización posterior, captura de fotos, ingreso por cantidad ejecutada (no por porcentaje).
 - Importación/exportación Excel (`openpyxl`/`exceljs`) y PDF.
+- **Integración de indicadores**: capa `ProveedorIndicadores` con implementaciones conmutables
+  (BCCh, SII, INE, mindicador) tras una interfaz común, para cambiar de fuente por configuración.
+  Job programado con reintentos, backfill, caché local persistente y **modo sin red**: la
+  aplicación debe seguir operando con los últimos valores conocidos, marcando lo provisional.
+  Credenciales de fuentes en variables de entorno o gestor de secretos, nunca en el código.
 - Autenticación con roles del §3, auditoría completa, respaldos.
-- Pruebas automatizadas de todas las fórmulas del §4, con los números reales del §2.1 como caso
-  de referencia.
+- Pruebas automatizadas de todas las fórmulas del §5, con los números reales del §2.1 como caso
+  de referencia, más pruebas de la resolución temporal de parámetros (§4.3) con fechas límite.
 
 ---
 
-## 9. Criterios de aceptación
+## 10. Criterios de aceptación
 
 1. Al importar la plantilla de referencia, el sistema reproduce **116 partidas medibles**, 23
    agrupadores, 112 APU, y un contrato de **$807.962.805** con costo directo **$502.933.585**.
@@ -378,11 +580,23 @@ Auditoria(id, entidad, entidad_id, accion, usuario, timestamp, datos_antes, dato
    obra 6.900 (incluye leyes sociales 50%), equipos 115 y precio unitario **18.515**.
 7. Un cambio de cantidad contratada por modificación de contrato no altera retroactivamente los
    EP ya aprobados.
-8. Las 8 validaciones del §6 se ejecutan en la importación y quedan listadas en un informe.
+8. Las validaciones del §7 se ejecutan en la importación y quedan listadas en un informe.
+9. **Parámetros por obra**: crear una segunda obra con GG 12%, utilidad 15% y utilidad calculada
+   sobre CD+GG produce cierres económicos correctos sin tocar código ni afectar a la primera obra.
+10. **Vigencia temporal**: cambiar `pct_gg` de 15% a 12% con vigencia 01-06-2025 deja intactos los
+    EP con fecha de corte anterior, y el nuevo valor solo aplica a cortes posteriores. Intentar
+    fijar una vigencia anterior a un EP aprobado es rechazado con un mensaje explícito.
+11. **Indicadores**: la UF del 17-03-2025 se obtiene de la fuente oficial y queda registrada con
+    valor, fuente, URL y fecha de consulta. Reabrir ese EP un año después muestra el mismo valor
+    aunque la serie se haya corregido.
+12. **Degradación sin red**: con la fuente caída, el sistema calcula con el último valor conocido,
+    marca el EP como `PROVISIONAL` y la advertencia aparece en pantalla y en el PDF exportado.
+13. **Trazabilidad**: el PDF de cualquier EP imprime al pie los parámetros y los indicadores
+    usados, con su fuente y fecha de consulta.
 
 ---
 
-## 10. Fuera de alcance (versión 1)
+## 11. Fuera de alcance (versión 1)
 
 Contabilidad y facturación electrónica (SII), remuneraciones, control de bodega e inventario,
 adquisiciones y órdenes de compra, prevención de riesgos. Dejar puntos de integración previstos,
@@ -390,11 +604,11 @@ pero no implementarlos.
 
 ---
 
-## 11. Entregables
+## 12. Entregables
 
 1. Modelo de datos y migraciones.
 2. Importador de plantilla con informe de validación.
 3. Módulos: presupuesto/APU, programación semanal, carga de avance, estados de pago, reportes.
-4. Los cuatro reportes del §5 con exportación PDF/Excel.
-5. Suite de pruebas cubriendo los criterios del §9.
+4. Los cuatro reportes del §6 con exportación PDF/Excel.
+5. Suite de pruebas cubriendo los criterios del §10.
 6. Manual breve de uso por rol y guía para preparar la plantilla de una obra nueva.
