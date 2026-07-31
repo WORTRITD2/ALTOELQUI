@@ -1,0 +1,120 @@
+:root {
+  --tinta: #16202c;
+  --tinta-suave: #5b6b7c;
+  --linea: #dfe5ec;
+  --fondo: #f4f6f9;
+  --panel: #ffffff;
+  --azul: #1f3864;
+  --azul-claro: #e8eef8;
+  --verde: #1a7f4b;
+  --amarillo: #b7791f;
+  --rojo: #b42318;
+  --sombra: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--tinta);
+  background: var(--fondo);
+}
+
+header {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .75rem 1.25rem; background: var(--azul); color: #fff; flex-wrap: wrap;
+}
+.marca strong { font-size: 1.05rem; }
+.marca .sub { display: block; font-size: .78rem; opacity: .75; }
+.contexto { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
+.contexto label { display: flex; flex-direction: column; font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .04em; opacity: .85; gap: .2rem; }
+.contexto select, .contexto input {
+  font-size: .9rem; padding: .35rem .5rem; border-radius: 5px; border: 1px solid rgba(255,255,255,.3);
+  background: rgba(255,255,255,.12); color: #fff; min-width: 12rem;
+}
+.contexto select option { color: #111; }
+
+nav {
+  display: flex; gap: .25rem; padding: 0 1.25rem; background: #fff;
+  border-bottom: 1px solid var(--linea); overflow-x: auto;
+}
+nav button {
+  border: 0; background: none; padding: .7rem .85rem; font-size: .88rem; cursor: pointer;
+  color: var(--tinta-suave); border-bottom: 2px solid transparent; white-space: nowrap;
+}
+nav button:hover { color: var(--tinta); }
+nav button.activa { color: var(--azul); border-bottom-color: var(--azul); font-weight: 600; }
+
+main { padding: 1.25rem; max-width: 1500px; margin: 0 auto; }
+.vista { display: none; }
+.vista.activa { display: block; }
+
+.panel { background: var(--panel); border: 1px solid var(--linea); border-radius: 8px;
+  box-shadow: var(--sombra); margin-bottom: 1.25rem; overflow: hidden; }
+.panel-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .7rem 1rem; border-bottom: 1px solid var(--linea); flex-wrap: wrap; }
+.panel-cabecera h2 { margin: 0; font-size: .95rem; }
+.nota { font-size: .78rem; color: var(--tinta-suave); }
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.25rem; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem;
+  margin-bottom: 1.25rem; }
+.kpi { background: var(--panel); border: 1px solid var(--linea); border-radius: 8px; padding: .8rem .9rem;
+  box-shadow: var(--sombra); }
+.kpi .etiqueta { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--tinta-suave); }
+.kpi .valor { font-size: 1.35rem; font-weight: 600; margin-top: .15rem; font-variant-numeric: tabular-nums; }
+.kpi .pie { font-size: .76rem; color: var(--tinta-suave); margin-top: .15rem; }
+.kpi.verde .valor { color: var(--verde); }
+.kpi.rojo .valor { color: var(--rojo); }
+.kpi.amarillo .valor { color: var(--amarillo); }
+
+table { border-collapse: collapse; width: 100%; font-size: .84rem; }
+th, td { padding: .4rem .55rem; border-bottom: 1px solid var(--linea); text-align: left; }
+thead th { background: var(--azul-claro); color: var(--azul); font-weight: 600; position: sticky; top: 0;
+  font-size: .78rem; text-transform: uppercase; letter-spacing: .02em; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: #f8fafc; }
+tr.nivel-1 td { font-weight: 600; background: #fbfcfe; }
+.scroll-x { overflow-x: auto; max-height: 640px; overflow-y: auto; }
+
+.barra { display: flex; gap: .75rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; }
+.barra label { display: flex; flex-direction: column; font-size: .75rem; color: var(--tinta-suave); gap: .2rem; }
+.barra input, .barra select { padding: .35rem .5rem; border: 1px solid var(--linea); border-radius: 5px;
+  font-size: .88rem; background: #fff; }
+
+.boton { display: inline-block; background: var(--azul); color: #fff; border: 0; border-radius: 6px;
+  padding: .45rem .9rem; font-size: .85rem; cursor: pointer; text-decoration: none; }
+.boton:hover { filter: brightness(1.12); }
+.boton.secundario { background: #fff; color: var(--azul); border: 1px solid var(--azul); }
+.boton.mini { padding: .2rem .5rem; font-size: .76rem; }
+
+.formulario { padding: 1rem; display: grid; gap: .7rem; }
+.formulario label { display: flex; flex-direction: column; font-size: .78rem; color: var(--tinta-suave); gap: .25rem; }
+.formulario input, .formulario select { padding: .4rem .55rem; border: 1px solid var(--linea);
+  border-radius: 5px; font-size: .88rem; }
+.acciones { display: flex; gap: .5rem; }
+
+.pastilla { display: inline-block; padding: .1rem .45rem; border-radius: 99px; font-size: .74rem;
+  font-weight: 600; }
+.VERDE, .APROBADO, .PAGADO, .CONFIRMADO, .INFO { background: #e7f6ed; color: var(--verde); }
+.AMARILLO, .BORRADOR, .PROVISIONAL, .ADVERTENCIA, .PRESENTADO { background: #fdf4e3; color: var(--amarillo); }
+.ROJO, .ERROR, .OBSERVADO, .SIN_DATO { background: #fdeceb; color: var(--rojo); }
+.SIN_PROGRAMA { background: #eef1f5; color: var(--tinta-suave); }
+
+.barra-avance { position: relative; background: #eef1f5; border-radius: 99px; height: 7px; min-width: 60px; }
+.barra-avance span { position: absolute; inset: 0 auto 0 0; background: var(--azul); border-radius: 99px; }
+
+.aviso { position: fixed; right: 1rem; bottom: 1rem; background: var(--tinta); color: #fff;
+  padding: .6rem .9rem; border-radius: 6px; box-shadow: var(--sombra); max-width: 30rem; font-size: .85rem;
+  z-index: 20; }
+.aviso.error { background: var(--rojo); }
+.oculto { display: none; }
+
+.provisional { border-left: 3px solid var(--amarillo); padding-left: .6rem; }
+.leyenda { font-size: .78rem; color: var(--tinta-suave); padding: .6rem 1rem; }
+svg text { font-size: 10px; fill: var(--tinta-suave); }
+.vacio { padding: 1.25rem; color: var(--tinta-suave); font-size: .86rem; }

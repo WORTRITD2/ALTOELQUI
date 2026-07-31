@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestión de Obra</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <div class="marca">
+    <strong>Gestión de Obra</strong>
+    <span class="sub">avance real · estados de pago · programación semanal</span>
+  </div>
+  <div class="contexto">
+    <label>Obra activa
+      <select id="selector-obra"></select>
+    </label>
+    <label>Fecha de corte
+      <input type="date" id="fecha-corte">
+    </label>
+  </div>
+</header>
+
+<nav id="pestanas">
+  <button data-vista="tablero" class="activa">Tablero</button>
+  <button data-vista="presupuesto">Avance vs presupuesto</button>
+  <button data-vista="semanal">Avance vs programa</button>
+  <button data-vista="estados-pago">Estados de pago</button>
+  <button data-vista="parametros">Parámetros</button>
+  <button data-vista="indicadores">Indicadores</button>
+  <button data-vista="validaciones">Validaciones</button>
+</nav>
+
+<main>
+  <!-- TABLERO -->
+  <section id="vista-tablero" class="vista activa">
+    <div id="kpis" class="kpis"></div>
+    <div class="panel">
+      <div class="panel-cabecera"><h2>Curva S — programado vs real</h2></div>
+      <div id="curva-s"></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Partidas críticas por monto de atraso</h2></div>
+        <div id="criticas-tablero"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Estados de pago</h2></div>
+        <div id="eps-tablero"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRESUPUESTO -->
+  <section id="vista-presupuesto" class="vista">
+    <div class="barra">
+      <label><input type="checkbox" id="solo-aprobados" checked> Solo avance aprobado</label>
+      <a id="descarga-presupuesto" class="boton" href="#">Exportar a Excel</a>
+    </div>
+    <div id="cierre-presupuesto" class="kpis"></div>
+    <div class="panel">
+      <div class="panel-cabecera">
+        <h2>Itemizado</h2>
+        <input type="search" id="filtro-partidas" placeholder="Filtrar por código o descripción…">
+      </div>
+      <div id="tabla-presupuesto" class="scroll-x"></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Avance por capítulo (ponderado por costo)</h2></div>
+        <div id="capitulos"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Dónde está el dinero — top 10 por incidencia</h2></div>
+        <div id="top-incidencia"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SEMANAL -->
+  <section id="vista-semanal" class="vista">
+    <div class="barra">
+      <label>Desde <input type="date" id="semanal-desde"></label>
+      <label>Hasta <input type="date" id="semanal-hasta"></label>
+      <button id="btn-semanal" class="boton">Actualizar</button>
+      <a id="descarga-semanal" class="boton secundario" href="#">Exportar a Excel</a>
+      <button id="btn-programacion" class="boton secundario">Generar línea base</button>
+    </div>
+    <div id="resumen-semanal" class="kpis"></div>
+    <div class="panel">
+      <div class="panel-cabecera"><h2>Semanas laborales hábiles</h2></div>
+      <div id="tabla-semanal" class="scroll-x"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-cabecera"><h2>Partidas críticas — ordenadas por monto de atraso, no por porcentaje</h2></div>
+      <div id="tabla-criticas" class="scroll-x"></div>
+    </div>
+  </section>
+
+  <!-- ESTADOS DE PAGO -->
+  <section id="vista-estados-pago" class="vista">
+    <div class="barra">
+      <label>Fecha de corte <input type="date" id="ep-fecha"></label>
+      <label>Días de atraso <input type="number" id="ep-atraso" value="0" min="0" style="width:5rem"></label>
+      <button id="btn-generar-ep" class="boton">Generar estado de pago</button>
+    </div>
+    <div id="lista-eps"></div>
+    <div id="detalle-ep"></div>
+  </section>
+
+  <!-- PARÁMETROS -->
+  <section id="vista-parametros" class="vista">
+    <div class="panel">
+      <div class="panel-cabecera">
+        <h2>Parámetros vigentes a la fecha de corte</h2>
+        <span class="nota">Editar no sobrescribe: abre una vigencia nueva desde la fecha que indiques.</span>
+      </div>
+      <div id="tabla-parametros" class="scroll-x"></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Cambiar un parámetro</h2></div>
+        <form id="form-parametro" class="formulario">
+          <label>Parámetro <select id="param-clave"></select></label>
+          <label>Valor nuevo <input id="param-valor" required></label>
+          <label>Vigente desde <input type="date" id="param-desde" required></label>
+          <label>Motivo <input id="param-motivo" placeholder="Resolución, ley, acuerdo…"></label>
+          <label>Documento de respaldo (URL) <input id="param-doc"></label>
+          <div class="acciones">
+            <button type="button" id="btn-simular" class="boton secundario">Simular impacto</button>
+            <button type="submit" class="boton">Guardar vigencia</button>
+          </div>
+          <div id="resultado-simulacion"></div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Línea de tiempo del parámetro</h2></div>
+        <div id="historial-parametro" class="scroll-x"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INDICADORES -->
+  <section id="vista-indicadores" class="vista">
+    <div class="panel">
+      <div class="panel-cabecera">
+        <h2>Indicadores económicos</h2>
+        <span class="nota">Banco Central (oficial) · SII (contraste) · mindicador.cl (respaldo no oficial)</span>
+      </div>
+      <div class="barra">
+        <label>Código
+          <select id="ind-codigo">
+            <option>UF</option><option>UTM</option><option>IPC</option><option>USD_OBS</option>
+          </select>
+        </label>
+        <label>Desde <input type="date" id="ind-desde"></label>
+        <label>Hasta <input type="date" id="ind-hasta"></label>
+        <button id="btn-sincronizar" class="boton">Sincronizar desde la fuente</button>
+      </div>
+      <div id="estado-sincronizacion"></div>
+      <div id="serie-indicador" class="scroll-x"></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Carga manual autorizada</h2></div>
+        <form id="form-indicador" class="formulario">
+          <label>Código <input id="man-codigo" value="UF"></label>
+          <label>Fecha <input type="date" id="man-fecha" required></label>
+          <label>Valor <input id="man-valor" required placeholder="38264.41"></label>
+          <label>Nota <input id="man-nota" placeholder="Origen del dato"></label>
+          <div class="acciones"><button type="submit" class="boton">Registrar</button></div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel-cabecera"><h2>Feriados que afectan la semana hábil</h2></div>
+        <div id="lista-feriados" class="scroll-x"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VALIDACIONES -->
+  <section id="vista-validaciones" class="vista">
+    <div class="panel">
+      <div class="panel-cabecera">
+        <h2>Informe de validación de la importación</h2>
+        <span class="nota">Nada se silencia: cada anomalía de la plantilla queda registrada.</span>
+      </div>
+      <div id="resumen-validaciones" class="kpis"></div>
+      <div id="tabla-validaciones" class="scroll-x"></div>
+    </div>
+  </section>
+</main>
+
+<div id="aviso" class="aviso oculto"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
