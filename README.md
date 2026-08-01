@@ -10,7 +10,18 @@ completas; en el teléfono, tarjetas, navegación inferior y funcionamiento sin 
 control de gerencia** resume la cartera de obras y permite filtrar el detalle por capítulo,
 semáforo, estado de ejecución o texto.
 
-## Puesta en marcha
+## Cómo acceder
+
+**La aplicación aún no está publicada en internet: no hay una dirección que abrir.** Para verla
+funcionando hay dos caminos, explicados paso a paso en
+[`docs/como-acceder.md`](docs/como-acceder.md):
+
+- **En tu computador, en 5 minutos**: `./iniciar.sh` (Mac/Linux) o doble clic en `iniciar.bat`
+  (Windows), y abrir `http://127.0.0.1:8000`. Solo necesita Python instalado.
+- **Publicada e instalable en Android**: la API en Render (con el `render.yaml` incluido) y la
+  interfaz en Netlify. Dos cuentas gratuitas y unos 20 minutos.
+
+## Puesta en marcha manual
 
 ```bash
 cd backend

@@ -1,0 +1,26 @@
+# Despliegue de la API con un clic en Render (New → Blueprint → este repositorio).
+# El frontend va aparte, en Netlify (ver docs/despliegue-netlify-android.md).
+services:
+  - type: web
+    name: obra-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /salud
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: obra-db
+          property: connectionString
+      - key: ORIGENES_PERMITIDOS
+        sync: false          # se completa con el dominio de Netlify
+      - key: BCCH_USER
+        sync: false          # opcional: credenciales del Banco Central
+      - key: BCCH_PASS
+        sync: false
+
+databases:
+  - name: obra-db
+    plan: free
+    databaseName: obra
