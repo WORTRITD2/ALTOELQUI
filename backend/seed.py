@@ -30,11 +30,12 @@ from app.models import (
     PlantillaParametroValor,
 )
 
-RUTA_PLANTILLA = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "plantilla",
-    "PPTO_RCR_Conservacion_Escuela_Juan_Sandoval_Carrasco.xlsx",
+NOMBRE_PLANTILLA = "PPTO_RCR_Conservacion_Escuela_Juan_Sandoval_Carrasco.xlsx"
+DIRECTORIO_PLANTILLA = os.getenv(
+    "PLANTILLA_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plantilla"),
 )
+RUTA_PLANTILLA = os.path.join(DIRECTORIO_PLANTILLA, NOMBRE_PLANTILLA)
 
 PARAMETROS_RCR = {
     "pct_gg": "0.15",

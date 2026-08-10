@@ -1,13 +1,19 @@
+# Imagen única: API + interfaz + plantilla de referencia.
+# El contexto de build es la RAÍZ del repositorio (ver render.yaml).
 FROM python:3.11-slim
 
-WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY backend/ /app/
+COPY frontend/ /frontend/
+COPY plantilla/ /plantilla/
 
-# El host de despliegue (Render, Railway, Fly) entrega el puerto en $PORT.
-ENV PORT=8000
+ENV FRONTEND_DIR=/frontend \
+    PLANTILLA_DIR=/plantilla \
+    PORT=8000
+
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
